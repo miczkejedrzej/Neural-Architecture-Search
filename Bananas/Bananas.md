@@ -32,7 +32,7 @@ architecture → predicted performance
 
    - (BANANAS uses **path-based encoding**)
 
-   <img src="plots/encoding.png" alt="encoding scheme of the arhictecture" width=20% height=15% />
+   <img src="plots/encoding.png" alt="encoding scheme of the arhictecture" width=40% height=30% />
    <!-- !["encoding scheme of the architectures"](plots/encoding.png) -->
 
 3. **Predictor (Surrogate Model)**
@@ -72,7 +72,7 @@ architecture → predicted performance
 
 ##  Full NAS Loop
 
-<img src="plots/training_loop_bananas.png" alt="predictor training loop" width=20% height=15% />
+<img src="plots/training_loop_bananas.png" alt="predictor training loop" width=40% height=30% />
 
 
 ### 1. Initialize (cold start)
