@@ -152,10 +152,9 @@ Given:
 - Models: f₁(a), ..., f_M(a)
 
 Compute:
-$
-f̂ = (1/M) Σ f_m(a)
-σ̂ = std(f_m(a))
-$
+
+$f̂ = (1/M) Σ f_m(a)
+σ̂ = std(f_m(a))$
 
 Also:
 
@@ -168,14 +167,14 @@ y_min = best observed error
 
 ### 1. Expected Improvement (EI)
 
-$
-EI(a) = E[max(0, y_min - f(a))]
+
+$EI(a) = E[max(0, y_min - f(a))]$
 
 
 Integral form:
 
-∫_{-∞}^{y_min} (y_min - y) N(f̂, σ̂²) dy
-$
+$∫_{-∞}^{y_min} (y_min - y) N(f̂, σ̂²) dy$
+
 
  Interpretation:
 - improvement × probability
@@ -184,9 +183,9 @@ $
 
 ### 2. Probability of Improvement (PI)
 
-$
-PI(a) = P(f(a) < y_min)
-$
+
+$PI(a) = P(f(a) < y_min)$
+
 
  Only considers probability
 
@@ -194,9 +193,9 @@ $
 
 ### 3. Upper Confidence Bound (UCB)
 
-$
-UCB(a) = f̂ - β σ̂
-$
+
+$UCB(a) = f̂ - β σ̂$
+
 
 - β controls exploration
 
@@ -204,30 +203,30 @@ $
 
 ### 4. Thompson Sampling (TS)
 
-$
+
 Pick m ~ Uniform(1, M)
 TS(a) = f_m(a)
-$
+
 
 ---
 
 ### 5. Independent Thompson Sampling (ITS) - Proved to perform the best, and resultantly used in the bananas 
 
-$
-ITS(a) ~ N(f̂, σ̂²)
-$
+
+$ITS(a) ~ N(f̂, σ̂²)$
+
 
 ---
 
 ## EI in Practice
 ### Monte Carlo approximation (common)
 
-$
-EI ≈ (1/M) Σ max(0, y_min - f_m(a))
+
+$EI ≈ (1/M) Σ max(0, y_min - f_m(a))$
 
 This acquisition 
 does not take the uncertainity into the consideration, only the expected improvement ased on the ensemble mean!
-$
+
 
 ---
 
@@ -238,16 +237,16 @@ $
 
 
 formula 
-$ z = (y_min - f̂) / σ̂ EI = (y_min - f̂) Φ(z) + σ̂ φ(z) $
+$z = (y_min - f̂) / σ̂ EI = (y_min - f̂) Φ(z) + σ̂ φ(z)$
 
 We assume:
 
-f(a) ~ N(f̂, σ̂²)
+$f(a) ~ N(f̂, σ̂²)$
 
 
 Define:
 
-z = (y_min - f̂) / σ̂
+$z = (y_min - f̂) / σ̂$
 we bring to the standard normal distirbution (0,1) and calculate the cdf  fpr the probability that result is lesser than y_min
 
 f̂ ensemble mean for the currently examined architecture
@@ -257,7 +256,7 @@ sigma hat is deviation for the currently examined architecture
 
 Then:
 
-EI(a) = (y_min - f̂) Φ(z) + σ̂ φ(z)
+$EI(a) = (y_min - f̂) Φ(z) + σ̂ φ(z)$
 
 
 ---
