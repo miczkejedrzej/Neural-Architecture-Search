@@ -4,12 +4,28 @@
   "epochs": 50,
   "predictor": "bananas",
   "methods": [
+    "random",
     "re",
     "bananas",
     "rl",
     "darts_proxy"
   ],
   "optimizers": {
+    "random": {
+      "optimizer": "random",
+      "epoch": 50,
+      "sampled_arch": "(0, 3, 4, 1, 0, 1)",
+      "best_arch": "(2, 3, 0, 1, 2, 3)",
+      "train_acc": 99.984,
+      "val_acc": 90.64,
+      "test_acc": 90.64,
+      "train_time": 11.231087962786356,
+      "reward": 0.7696,
+      "loss": null,
+      "entropy": null,
+      "wall_time_sec": 1.4887247920000002,
+      "epochs": 50
+    },
     "re": {
       "optimizer": "re",
       "epoch": 50,
@@ -22,7 +38,7 @@
       "reward": 0.8613,
       "loss": null,
       "entropy": null,
-      "wall_time_sec": 4.246911875,
+      "wall_time_sec": 4.364940957999999,
       "epochs": 50
     },
     "bananas": {
@@ -37,7 +53,7 @@
       "reward": 0.8532,
       "loss": null,
       "entropy": null,
-      "wall_time_sec": 31.628658875,
+      "wall_time_sec": 31.446659959,
       "epochs": 50
     },
     "rl": {
@@ -52,7 +68,7 @@
       "reward": 0.7694,
       "loss": -1.0501090288162231,
       "entropy": 9.607090950012207,
-      "wall_time_sec": 1.6447088749999992,
+      "wall_time_sec": 1.5647940000000062,
       "epochs": 50
     },
     "darts_proxy": {
@@ -67,7 +83,7 @@
       "reward": 0.8464,
       "loss": -0.8685001134872437,
       "entropy": 9.383520126342773,
-      "wall_time_sec": 1.8815161249999974,
+      "wall_time_sec": 1.9936482079999962,
       "epochs": 50,
       "alpha_argmax_arch": "(3, 3, 3, 4, 3, 3)",
       "alpha_argmax_metrics": {

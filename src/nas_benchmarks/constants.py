@@ -3,7 +3,7 @@
 NUM_NB201_EDGES = 6
 NUM_NB201_OPS = 5
 
-SUPPORTED_METHODS = {"re", "bananas", "rl", "darts_proxy"}
+SUPPORTED_METHODS = {"random", "re", "bananas", "rl", "darts_proxy"}
 
 OUTPUT_COLUMNS = [
     "optimizer",
@@ -19,4 +19,3 @@ OUTPUT_COLUMNS = [
     "entropy",
     "wall_time_sec",
 ]
-

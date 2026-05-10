@@ -18,6 +18,7 @@ from nas_benchmarks.config import build_config
 from nas_benchmarks.data import load_nb201_api
 from nas_benchmarks.nb201 import make_search_space, query_nb201_arch
 from nas_benchmarks.optimizers.darts_proxy import TabularDARTSProxyOptimizer
+from nas_benchmarks.optimizers.random_search import RandomSearchOptimizer
 from nas_benchmarks.optimizers.rl import RLControllerOptimizer
 from nas_benchmarks.output import build_row, write_outputs
 
@@ -30,11 +31,12 @@ def benchmark_tabular_optimizer(
     dataset_api: dict[str, Any],
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     utils.set_seed(args.seed)
-    optimizer = (
-        RLControllerOptimizer(args, dataset_api)
-        if name == "rl"
-        else TabularDARTSProxyOptimizer(args, dataset_api)
-    )
+    if name == "random":
+        optimizer = RandomSearchOptimizer(args, dataset_api)
+    elif name == "rl":
+        optimizer = RLControllerOptimizer(args, dataset_api)
+    else:
+        optimizer = TabularDARTSProxyOptimizer(args, dataset_api)
 
     rows: list[dict[str, Any]] = []
     start = time.perf_counter()
@@ -65,7 +67,7 @@ def benchmark_optimizer(
     args: argparse.Namespace,
     dataset_api: dict[str, Any],
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    if name in {"rl", "darts_proxy"}:
+    if name in {"random", "rl", "darts_proxy"}:
         return benchmark_tabular_optimizer(name, args, dataset_api)
 
     config = build_config(args, name)
@@ -157,7 +159,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             final["best_arch"],
         )
 
-    write_outputs(Path(args.out_dir), all_rows, summary)
+    write_outputs(Path(args.out_dir), all_rows, summary, make_plots=not args.no_plots)
     return summary
 
 
@@ -165,4 +167,3 @@ def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     summary = run(parse_args(argv))
     print(json.dumps(summary, indent=2))
-

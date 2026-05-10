@@ -11,7 +11,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Benchmark NAS optimizers on NAS-Bench-201."
     )
-    parser.add_argument("--methods", default="re,bananas,rl,darts_proxy")
+    parser.add_argument("--methods", default="random,re,bananas,rl,darts_proxy")
     parser.add_argument(
         "--dataset",
         default="cifar10",
@@ -56,6 +56,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Instantiate PyTorch modules for sampled architectures. Slower; not needed for tabular benchmarks.",
     )
+    parser.add_argument(
+        "--no-plots",
+        action="store_true",
+        help="Skip PNG plot generation.",
+    )
     return parser.parse_args(argv)
 
 
@@ -66,4 +71,3 @@ def parse_methods(methods: str) -> list[str]:
         supported = ", ".join(sorted(SUPPORTED_METHODS))
         raise ValueError(f"Unknown methods: {', '.join(unknown)}. Supported: {supported}")
     return selected
-
