@@ -7,9 +7,11 @@ src/nas_benchmarks/constants.py
 src/nas_benchmarks/data.py
 src/nas_benchmarks/nb201.py
 src/nas_benchmarks/output.py
+src/nas_benchmarks/plots.py
 src/nas_benchmarks/runner.py
 src/nas_benchmarks/optimizers/__init__.py
 src/nas_benchmarks/optimizers/darts_proxy.py
+src/nas_benchmarks/optimizers/random_search.py
 src/nas_benchmarks/optimizers/rl.py
 src/neural_architecture_search.egg-info/PKG-INFO
 src/neural_architecture_search.egg-info/SOURCES.txt

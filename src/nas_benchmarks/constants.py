@@ -6,6 +6,7 @@ NUM_NB201_OPS = 5
 SUPPORTED_METHODS = {"random", "re", "bananas", "rl", "darts_proxy"}
 
 OUTPUT_COLUMNS = [
+    "run_id",
     "optimizer",
     "epoch",
     "sampled_arch",

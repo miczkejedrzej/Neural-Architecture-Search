@@ -27,7 +27,7 @@ def write_plots(
     summary: dict[str, Any],
 ) -> list[Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
-    grouped = group_rows(rows)
+    grouped = group_rows(average_rows(rows))
 
     paths = [
         plot_metric_trajectory(
@@ -51,10 +51,9 @@ def write_plots(
             ylabel="Sampled reward",
             title="Sampled architecture reward",
         ),
-        plot_metric_trajectory_by_time(
+        plot_best_val_accuracy_by_time_with_range(
             out_dir / "best_val_accuracy_by_time.png",
-            grouped,
-            metric="val_acc",
+            rows,
             ylabel="Best validation accuracy (%)",
             title="NAS-Bench-201 validation trajectory over time",
         ),
@@ -97,6 +96,153 @@ def group_rows(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     for optimizer_rows in grouped.values():
         optimizer_rows.sort(key=lambda row: int(row["epoch"]))
     return dict(grouped)
+
+
+def group_rows_by_run(
+    rows: list[dict[str, Any]],
+) -> dict[str, dict[int, list[dict[str, Any]]]]:
+    grouped: dict[str, dict[int, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
+    for row in rows:
+        optimizer = str(row["optimizer"])
+        run_id = int(row.get("run_id", 0))
+        grouped[optimizer][run_id].append(row)
+    for optimizer_runs in grouped.values():
+        for run_rows in optimizer_runs.values():
+            run_rows.sort(key=lambda row: float(row["wall_time_sec"]))
+    return {opt: dict(runs) for opt, runs in grouped.items()}
+
+
+def average_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    run_ids = {row.get("run_id") for row in rows if "run_id" in row}
+    if len(run_ids) <= 1:
+        return rows
+
+    numeric_fields = {
+        "train_acc",
+        "val_acc",
+        "test_acc",
+        "train_time",
+        "reward",
+        "loss",
+        "entropy",
+        "wall_time_sec",
+    }
+    grouped: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        grouped[(str(row["optimizer"]), int(row["epoch"]))].append(row)
+
+    averaged: list[dict[str, Any]] = []
+    for (optimizer, epoch), group in grouped.items():
+        base = dict(group[0])
+        base["optimizer"] = optimizer
+        base["epoch"] = epoch
+        for field in numeric_fields:
+            values = [row[field] for row in group if row.get(field) is not None]
+            if values:
+                base[field] = float(sum(values)) / float(len(values))
+            else:
+                base[field] = None
+        averaged.append(base)
+    averaged.sort(key=lambda row: (str(row["optimizer"]), int(row["epoch"])))
+    return averaged
+
+
+def plot_best_val_accuracy_by_time_with_range(
+    path: Path,
+    rows: list[dict[str, Any]],
+    ylabel: str,
+    title: str,
+) -> Path:
+    run_ids = {row.get("run_id") for row in rows if "run_id" in row}
+    if len(run_ids) <= 1:
+        grouped = group_rows(average_rows(rows))
+        return plot_metric_trajectory_by_time(
+            path,
+            grouped,
+            metric="val_acc",
+            ylabel=ylabel,
+            title=title,
+        )
+
+    grouped = group_rows_by_run(rows)
+    fig, ax = plt.subplots(figsize=(9, 5), dpi=160)
+    for optimizer, runs in grouped.items():
+        run_curves = build_best_so_far_curves(runs)
+        if not run_curves:
+            continue
+        times, avg_vals, min_vals, max_vals = aggregate_run_curves(run_curves)
+        style = STYLE.get(optimizer, {})
+        color = style.get("color")
+        label = style.get("label", optimizer)
+        ax.fill_between(times, min_vals, max_vals, color=color, alpha=0.25)
+        ax.plot(
+            times,
+            avg_vals,
+            linewidth=2,
+            marker=style.get("marker", "o"),
+            markersize=4,
+            color=color,
+            alpha=0.7,
+            label=label,
+        )
+        ax.plot(times, min_vals, linewidth=1.2, color=color, alpha=0.4)
+        ax.plot(times, max_vals, linewidth=1.2, color=color, alpha=0.4)
+    finish_axes(ax, xlabel="Wall time (seconds)", ylabel=ylabel, title=title)
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    return path
+
+
+def build_best_so_far_curves(
+    runs: dict[int, list[dict[str, Any]]]
+) -> list[tuple[list[float], list[float]]]:
+    curves: list[tuple[list[float], list[float]]] = []
+    for run_rows in runs.values():
+        times: list[float] = []
+        bests: list[float] = []
+        best_val: float | None = None
+        for row in run_rows:
+            val = row.get("val_acc")
+            if val is None:
+                continue
+            best_val = max(best_val, float(val)) if best_val is not None else float(val)
+            times.append(float(row["wall_time_sec"]))
+            bests.append(best_val)
+        if times:
+            curves.append((times, bests))
+    return curves
+
+
+def aggregate_run_curves(
+    curves: list[tuple[list[float], list[float]]]
+) -> tuple[list[float], list[float], list[float], list[float]]:
+    time_points = sorted({t for times, _ in curves for t in times})
+    run_series: list[list[float | None]] = []
+    for times, values in curves:
+        idx = 0
+        current: float | None = None
+        series: list[float | None] = []
+        for t in time_points:
+            while idx < len(times) and times[idx] <= t:
+                current = values[idx]
+                idx += 1
+            series.append(current)
+        run_series.append(series)
+
+    filtered_times: list[float] = []
+    avg_vals: list[float] = []
+    min_vals: list[float] = []
+    max_vals: list[float] = []
+    for i, t in enumerate(time_points):
+        values = [series[i] for series in run_series if series[i] is not None]
+        if not values:
+            continue
+        filtered_times.append(t)
+        avg_vals.append(float(sum(values)) / float(len(values)))
+        min_vals.append(float(min(values)))
+        max_vals.append(float(max(values)))
+    return filtered_times, avg_vals, min_vals, max_vals
 
 
 def plot_metric_trajectory(

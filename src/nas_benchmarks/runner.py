@@ -29,6 +29,7 @@ def benchmark_tabular_optimizer(
     name: str,
     args: argparse.Namespace,
     dataset_api: dict[str, Any],
+    run_id: int,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     set_seed_if_needed(args)
     if name == "random":
@@ -50,6 +51,7 @@ def benchmark_tabular_optimizer(
         query_index += 1
         rows.append(
             build_row(
+                run_id=run_id,
                 optimizer=name,
                 epoch=query_index,
                 sampled_arch=step["sampled_arch"],
@@ -73,9 +75,10 @@ def benchmark_optimizer(
     name: str,
     args: argparse.Namespace,
     dataset_api: dict[str, Any],
+    run_id: int,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     if name in {"random", "rl", "darts_proxy"}:
-        return benchmark_tabular_optimizer(name, args, dataset_api)
+        return benchmark_tabular_optimizer(name, args, dataset_api, run_id)
 
     config = build_config(args, name)
     set_seed_if_needed(args)
@@ -115,6 +118,7 @@ def benchmark_optimizer(
         }
         rows.append(
             build_row(
+                run_id=run_id,
                 optimizer=name,
                 epoch=query_index,
                 sampled_arch=sampled_arch,
@@ -145,25 +149,41 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "dataset": args.dataset,
         "seed": None if args.no_seed else args.seed,
         "seeded": not args.no_seed,
+        "n_runs": args.n_runs,
+        "min_time_sec": args.min_time_sec,
         "time_limit_sec": args.time_limit_sec,
         "max_queries": args.max_queries,
         "predictor": args.predictor,
         "methods": methods,
         "optimizers": {},
+        "runs": [],
     }
 
-    for optimizer_name in methods:
-        LOGGER.info("Running %s", optimizer_name)
-        rows, final = benchmark_optimizer(optimizer_name, args, dataset_api)
-        all_rows.extend(rows)
-        summary["optimizers"][optimizer_name] = final
-        LOGGER.info(
-            "%s final: val_acc=%.4f test_acc=%.4f best_arch=%s",
-            optimizer_name,
-            final["val_acc"],
-            final["test_acc"],
-            final["best_arch"],
-        )
+    optimizer_runs: dict[str, list[dict[str, Any]]] = {name: [] for name in methods}
+
+    for run_id in range(args.n_runs):
+        run_args = make_run_args(args, run_id)
+        run_summary = {
+            "run_id": run_id,
+            "seed": None if run_args.no_seed else run_args.seed,
+            "optimizers": {},
+        }
+        for optimizer_name in methods:
+            LOGGER.info("Run %s/%s: %s", run_id + 1, args.n_runs, optimizer_name)
+            rows, final = benchmark_optimizer(optimizer_name, run_args, dataset_api, run_id)
+            all_rows.extend(rows)
+            optimizer_runs[optimizer_name].append(final)
+            run_summary["optimizers"][optimizer_name] = final
+            LOGGER.info(
+                "%s final: val_acc=%.4f test_acc=%.4f best_arch=%s",
+                optimizer_name,
+                final["val_acc"],
+                final["test_acc"],
+                final["best_arch"],
+            )
+        summary["runs"].append(run_summary)
+
+    summary["optimizers"] = average_final_metrics(optimizer_runs)
 
     write_outputs(Path(args.out_dir), all_rows, summary, make_plots=not args.no_plots)
     return summary
@@ -176,20 +196,67 @@ def main(argv: list[str] | None = None) -> None:
 
 
 def should_continue(start: float, completed_queries: int, args: argparse.Namespace) -> bool:
+    elapsed = time.perf_counter() - start
+    if elapsed < args.min_time_sec:
+        return True
     if completed_queries >= args.max_queries:
         return False
     if completed_queries == 0:
         return True
-    return time.perf_counter() - start < args.time_limit_sec
+    return elapsed < args.time_limit_sec
 
 
 def validate_time_budget(args: argparse.Namespace) -> None:
+    if args.min_time_sec < 0:
+        raise ValueError("--min-time-sec must be non-negative")
     if args.time_limit_sec <= 0:
         raise ValueError("--time-limit-sec must be positive")
+    if args.time_limit_sec < args.min_time_sec:
+        raise ValueError("--time-limit-sec must be >= --min-time-sec")
     if args.max_queries <= 0:
         raise ValueError("--max-queries must be positive")
+    if args.n_runs <= 0:
+        raise ValueError("--n-runs must be positive")
 
 
 def set_seed_if_needed(args: argparse.Namespace) -> None:
     if not args.no_seed:
         utils.set_seed(args.seed)
+
+
+def make_run_args(args: argparse.Namespace, run_id: int) -> argparse.Namespace:
+    if args.no_seed:
+        return args
+    run_seed = args.seed + run_id
+    return argparse.Namespace(**{**vars(args), "seed": run_seed})
+
+
+def average_final_metrics(
+    optimizer_runs: dict[str, list[dict[str, Any]]]
+) -> dict[str, dict[str, Any]]:
+    averaged: dict[str, dict[str, Any]] = {}
+    numeric_fields = {
+        "train_acc",
+        "val_acc",
+        "test_acc",
+        "train_time",
+        "reward",
+        "loss",
+        "entropy",
+        "wall_time_sec",
+    }
+    for optimizer, finals in optimizer_runs.items():
+        if not finals:
+            continue
+        base = dict(finals[0])
+        for field in numeric_fields:
+            values = [final[field] for final in finals if final.get(field) is not None]
+            if values:
+                base[field] = float(sum(values)) / float(len(values))
+            else:
+                base[field] = None
+        base["queries"] = finals[0].get("queries")
+        base["time_limit_sec"] = finals[0].get("time_limit_sec")
+        base["runs"] = finals
+        averaged[optimizer] = base
+    return averaged
