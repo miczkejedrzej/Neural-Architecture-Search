@@ -1,0 +1,81 @@
+{
+  "dataset": "cifar10",
+  "seed": 0,
+  "epochs": 50,
+  "predictor": "bananas",
+  "methods": [
+    "re",
+    "bananas",
+    "rl",
+    "darts_proxy"
+  ],
+  "optimizers": {
+    "re": {
+      "optimizer": "re",
+      "epoch": 50,
+      "sampled_arch": "(4, 3, 0, 2, 0, 2)",
+      "best_arch": "(3, 3, 0, 2, 4, 2)",
+      "train_acc": 99.984,
+      "val_acc": 90.9,
+      "test_acc": 90.9,
+      "train_time": 12.176835040251413,
+      "reward": 0.8613,
+      "loss": null,
+      "entropy": null,
+      "wall_time_sec": 4.225923542,
+      "epochs": 50
+    },
+    "bananas": {
+      "optimizer": "bananas",
+      "epoch": 50,
+      "sampled_arch": "(4, 2, 0, 2, 3, 1)",
+      "best_arch": "(2, 0, 0, 4, 2, 2)",
+      "train_acc": 99.996,
+      "val_acc": 90.92,
+      "test_acc": 90.92,
+      "train_time": 10.922529677549997,
+      "reward": 0.8532,
+      "loss": null,
+      "entropy": null,
+      "wall_time_sec": 30.831995582999998,
+      "epochs": 50
+    },
+    "rl": {
+      "optimizer": "rl",
+      "epoch": 50,
+      "sampled_arch": "(4, 4, 0, 0, 4, 1)",
+      "best_arch": "(2, 3, 0, 1, 3, 0)",
+      "train_acc": 99.976,
+      "val_acc": 90.52,
+      "test_acc": 90.52,
+      "train_time": 8.88131445646286,
+      "reward": 0.7694,
+      "loss": -1.0501090288162231,
+      "entropy": 9.607090950012207,
+      "wall_time_sec": 1.529653708000005,
+      "epochs": 50
+    },
+    "darts_proxy": {
+      "optimizer": "darts_proxy",
+      "epoch": 50,
+      "sampled_arch": "(1, 3, 4, 4, 3, 0)",
+      "best_arch": "(2, 2, 0, 2, 3, 2)",
+      "train_acc": 99.976,
+      "val_acc": 91.32,
+      "test_acc": 91.32,
+      "train_time": 14.030071238676706,
+      "reward": 0.8464,
+      "loss": -0.8685001134872437,
+      "entropy": 9.383520126342773,
+      "wall_time_sec": 1.9269452919999992,
+      "epochs": 50,
+      "alpha_argmax_arch": "(3, 3, 3, 4, 3, 3)",
+      "alpha_argmax_metrics": {
+        "train_acc": 99.45200000244141,
+        "val_acc": 86.47,
+        "test_acc": 86.47,
+        "train_time": 13.331094205379488
+      }
+    }
+  }
+}
