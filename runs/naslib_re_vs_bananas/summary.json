@@ -1,0 +1,30 @@
+{
+  "dataset": "cifar10",
+  "seed": 0,
+  "epochs": 100,
+  "predictor": "bananas",
+  "optimizers": {
+    "re": {
+      "optimizer": "re",
+      "epoch": 100,
+      "train_acc": 99.984,
+      "val_acc": 91.22,
+      "test_acc": 91.22,
+      "train_time": 11.234563171863556,
+      "wall_time_sec": 5.141256667,
+      "best_arch": "(2, 3, 0, 2, 1, 3)",
+      "epochs": 100
+    },
+    "bananas": {
+      "optimizer": "bananas",
+      "epoch": 100,
+      "train_acc": 99.968,
+      "val_acc": 90.95,
+      "test_acc": 90.95,
+      "train_time": 10.166429122289022,
+      "wall_time_sec": 78.15626783399999,
+      "best_arch": "(2, 0, 1, 2, 2, 0)",
+      "epochs": 100
+    }
+  }
+}
