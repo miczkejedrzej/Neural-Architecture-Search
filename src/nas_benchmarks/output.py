@@ -15,6 +15,7 @@ LOGGER = logging.getLogger("naslib-benchmark")
 
 
 def build_row(
+    run_id: int,
     optimizer: str,
     epoch: int,
     sampled_arch: tuple[int, ...],
@@ -26,6 +27,7 @@ def build_row(
     wall_time_sec: float,
 ) -> dict[str, Any]:
     return {
+        "run_id": run_id,
         "optimizer": optimizer,
         "epoch": epoch,
         "sampled_arch": str(sampled_arch),

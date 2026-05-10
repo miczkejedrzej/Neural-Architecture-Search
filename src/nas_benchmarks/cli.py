@@ -24,6 +24,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Wall-clock search budget per optimizer.",
     )
     parser.add_argument(
+        "--min-time-sec",
+        type=float,
+        default=20.0,
+        help="Minimum wall-clock runtime per optimizer.",
+    )
+    parser.add_argument(
         "--max-queries",
         type=int,
         default=1_000_000,
@@ -31,6 +37,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--epochs", type=int, default=None, help=argparse.SUPPRESS)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--n-runs",
+        "--n_runs",
+        type=int,
+        default=1,
+        help="Number of independent runs per optimizer.",
+    )
     parser.add_argument(
         "--no-seed",
         action="store_true",
