@@ -1,4 +1,4 @@
-"""Benchmark runner for four-way NAS-Bench-201 comparisons."""
+"""Benchmark runner for NAS-Bench-201 optimizer comparisons."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ def benchmark_tabular_optimizer(
     args: argparse.Namespace,
     dataset_api: dict[str, Any],
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    utils.set_seed(args.seed)
+    set_seed_if_needed(args)
     if name == "random":
         optimizer = RandomSearchOptimizer(args, dataset_api)
     elif name == "rl":
@@ -40,12 +40,18 @@ def benchmark_tabular_optimizer(
 
     rows: list[dict[str, Any]] = []
     start = time.perf_counter()
-    for epoch in range(args.epochs):
-        step = optimizer.step(epoch) if name == "darts_proxy" else optimizer.step()
+    query_index = 0
+    while should_continue(start, query_index, args):
+        step = (
+            optimizer.step(query_index)
+            if name == "darts_proxy"
+            else optimizer.step()
+        )
+        query_index += 1
         rows.append(
             build_row(
                 optimizer=name,
-                epoch=epoch + 1,
+                epoch=query_index,
                 sampled_arch=step["sampled_arch"],
                 best_arch=step["best_arch"],
                 best_metrics=step["best_metrics"],
@@ -57,7 +63,8 @@ def benchmark_tabular_optimizer(
         )
 
     final = rows[-1].copy()
-    final["epochs"] = args.epochs
+    final["queries"] = len(rows)
+    final["time_limit_sec"] = args.time_limit_sec
     final.update(optimizer.final_metadata())
     return rows, final
 
@@ -71,7 +78,7 @@ def benchmark_optimizer(
         return benchmark_tabular_optimizer(name, args, dataset_api)
 
     config = build_config(args, name)
-    utils.set_seed(args.seed)
+    set_seed_if_needed(args)
 
     if name == "re":
         optimizer = RegularizedEvolution(config)
@@ -86,11 +93,13 @@ def benchmark_optimizer(
 
     rows: list[dict[str, Any]] = []
     start = time.perf_counter()
-    for epoch in range(args.epochs):
-        optimizer.new_epoch(epoch)
+    query_index = 0
+    while should_continue(start, query_index, args):
+        optimizer.new_epoch(query_index)
         train_acc, val_acc, test_acc, train_time = optimizer.train_statistics(
             report_incumbent=True
         )
+        query_index += 1
         best_arch = optimizer.get_final_architecture()
         if name == "re":
             sampled_arch = tuple(int(x) for x in optimizer.population[-1].arch.get_hash())
@@ -107,7 +116,7 @@ def benchmark_optimizer(
         rows.append(
             build_row(
                 optimizer=name,
-                epoch=epoch + 1,
+                epoch=query_index,
                 sampled_arch=sampled_arch,
                 best_arch=best_arch_hash,
                 best_metrics=best_metrics,
@@ -120,27 +129,24 @@ def benchmark_optimizer(
 
     optimizer.after_training()
     final = rows[-1].copy()
-    final["epochs"] = args.epochs
+    final["queries"] = len(rows)
+    final["time_limit_sec"] = args.time_limit_sec
     return rows, final
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
     methods = parse_methods(args.methods)
 
-    if args.epochs < max(args.population_size, args.num_init):
-        LOGGER.warning(
-            "epochs=%s is below population_size=%s or num_init=%s; comparison will mostly show initialization.",
-            args.epochs,
-            args.population_size,
-            args.num_init,
-        )
+    validate_time_budget(args)
 
     dataset_api = load_nb201_api(args.dataset, args.nb201_data)
     all_rows: list[dict[str, Any]] = []
     summary: dict[str, Any] = {
         "dataset": args.dataset,
-        "seed": args.seed,
-        "epochs": args.epochs,
+        "seed": None if args.no_seed else args.seed,
+        "seeded": not args.no_seed,
+        "time_limit_sec": args.time_limit_sec,
+        "max_queries": args.max_queries,
         "predictor": args.predictor,
         "methods": methods,
         "optimizers": {},
@@ -167,3 +173,23 @@ def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     summary = run(parse_args(argv))
     print(json.dumps(summary, indent=2))
+
+
+def should_continue(start: float, completed_queries: int, args: argparse.Namespace) -> bool:
+    if completed_queries >= args.max_queries:
+        return False
+    if completed_queries == 0:
+        return True
+    return time.perf_counter() - start < args.time_limit_sec
+
+
+def validate_time_budget(args: argparse.Namespace) -> None:
+    if args.time_limit_sec <= 0:
+        raise ValueError("--time-limit-sec must be positive")
+    if args.max_queries <= 0:
+        raise ValueError("--max-queries must be positive")
+
+
+def set_seed_if_needed(args: argparse.Namespace) -> None:
+    if not args.no_seed:
+        utils.set_seed(args.seed)

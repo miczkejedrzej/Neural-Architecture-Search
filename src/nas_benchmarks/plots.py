@@ -51,7 +51,28 @@ def write_plots(
             ylabel="Sampled reward",
             title="Sampled architecture reward",
         ),
-        plot_runtime_vs_metric(
+        plot_metric_trajectory_by_time(
+            out_dir / "best_val_accuracy_by_time.png",
+            grouped,
+            metric="val_acc",
+            ylabel="Best validation accuracy (%)",
+            title="NAS-Bench-201 validation trajectory over time",
+        ),
+        plot_metric_trajectory_by_time(
+            out_dir / "best_test_accuracy_by_time.png",
+            grouped,
+            metric="test_acc",
+            ylabel="Best test accuracy (%)",
+            title="NAS-Bench-201 test trajectory over time",
+        ),
+        plot_metric_trajectory_by_time(
+            out_dir / "sampled_reward_by_time.png",
+            grouped,
+            metric="reward",
+            ylabel="Sampled reward",
+            title="Sampled architecture reward over time",
+        ),
+        plot_metric_trajectory_by_time(
             out_dir / "runtime_vs_val_accuracy.png",
             grouped,
             metric="val_acc",
@@ -87,11 +108,11 @@ def plot_metric_trajectory(
 ) -> Path:
     fig, ax = plt.subplots(figsize=(9, 5), dpi=160)
     for optimizer, rows in grouped.items():
-        epochs = [int(row["epoch"]) for row in rows]
+        queries = [int(row["epoch"]) for row in rows]
         values = [float(row[metric]) for row in rows]
         style = STYLE.get(optimizer, {})
         ax.plot(
-            epochs,
+            queries,
             values,
             linewidth=2,
             marker=style.get("marker", "o"),
@@ -106,7 +127,7 @@ def plot_metric_trajectory(
     return path
 
 
-def plot_runtime_vs_metric(
+def plot_metric_trajectory_by_time(
     path: Path,
     grouped: dict[str, list[dict[str, Any]]],
     metric: str,
