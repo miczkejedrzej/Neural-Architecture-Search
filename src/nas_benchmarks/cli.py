@@ -18,12 +18,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=["cifar10", "cifar100", "ImageNet16-120"],
     )
     parser.add_argument(
-        "--epochs",
-        type=int,
-        default=50,
-        help="Architecture queries per optimizer.",
+        "--time-limit-sec",
+        type=float,
+        default=60.0,
+        help="Wall-clock search budget per optimizer.",
     )
+    parser.add_argument(
+        "--max-queries",
+        type=int,
+        default=1_000_000,
+        help="Safety cap for architecture queries per optimizer.",
+    )
+    parser.add_argument("--epochs", type=int, default=None, help=argparse.SUPPRESS)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--no-seed",
+        action="store_true",
+        help="Do not seed random generators.",
+    )
     parser.add_argument("--out-dir", default="runs/naslib_four_way")
     parser.add_argument(
         "--nb201-data",
@@ -61,7 +73,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Skip PNG plot generation.",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.epochs is not None:
+        args.max_queries = args.epochs
+    return args
 
 
 def parse_methods(methods: str) -> list[str]:

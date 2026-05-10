@@ -21,8 +21,8 @@ def build_config(args: argparse.Namespace, optimizer: str) -> CfgNode:
 
     config.search = CfgNode(new_allowed=True)
     config.search.seed = args.seed
-    config.search.epochs = args.epochs
-    config.search.checkpoint_freq = args.epochs + 1
+    config.search.epochs = args.max_queries
+    config.search.checkpoint_freq = args.max_queries + 1
     config.search.sample_size = args.sample_size
     config.search.population_size = args.population_size
 
@@ -45,4 +45,3 @@ def build_config(args: argparse.Namespace, optimizer: str) -> CfgNode:
 
     config.evaluation = CfgNode(new_allowed=True)
     return config
-
