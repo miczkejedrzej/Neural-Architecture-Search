@@ -201,12 +201,6 @@ def train(
             val_loss=f"{metrics['val_loss']:.4f}",
             val_acc=f"{metrics['val_acc']:.3f}",
         )
-        print(
-            "epoch={epoch:03d} train_loss={train_loss:.4f} "
-            "train_acc={train_acc:.3f} val_loss={val_loss:.4f} val_acc={val_acc:.3f}".format(
-                **metrics
-            )
-        )
     return history
 
 

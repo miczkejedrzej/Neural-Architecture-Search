@@ -10,8 +10,7 @@ dependencies = [
 
 [project.scripts]
 nb201-arch-summary = "nas_benchmarks.architecture_summary:main"
-nb201-train-cifar100 = "nas_benchmarks.toy_train:main"
-nb201-train-toy = "nas_benchmarks.toy_train:main"
+nb201-train-cifar100 = "nas_benchmarks.nn_train:main"
 
 [build-system]
 requires = ["setuptools>=61"]
