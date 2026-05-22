@@ -8,6 +8,14 @@ dependencies = [
     "naslib",
 ]
 
+<<<<<<< HEAD
+=======
+[project.scripts]
+nb201-arch-summary = "nas_benchmarks.architecture_summary:main"
+nb201-train-cifar100 = "nas_benchmarks.toy_train:main"
+nb201-train-toy = "nas_benchmarks.toy_train:main"
+
+>>>>>>> 8ada719a866964e0d6d0ef3ca43bfb4809f3674c
 [build-system]
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"

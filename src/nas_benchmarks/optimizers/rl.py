@@ -6,10 +6,14 @@ import argparse
 from typing import Any
 
 import torch
-import torch.nn as nn
+from torch import nn
 
 from nas_benchmarks.constants import NUM_NB201_EDGES, NUM_NB201_OPS
-from nas_benchmarks.nb201 import is_valid_nb201_arch, query_nb201_arch, random_valid_arch
+from nas_benchmarks.nb201 import (
+    is_valid_nb201_arch,
+    query_nb201_arch,
+    random_valid_arch,
+)
 
 
 class RLController(nn.Module):
