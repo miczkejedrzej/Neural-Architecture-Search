@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import random
+import time
 from pathlib import Path
 
 import torch
 from torchvision import datasets, transforms
 from torch import nn
 from torch.utils.data import DataLoader, Subset
+from tqdm.auto import tqdm
 
 from nas_benchmarks.architecture_summary import (
     EDGE_LIST,
@@ -158,6 +161,7 @@ def train(
     device: torch.device,
     epochs: int,
     lr: float,
+    show_progress: bool,
 ) -> list[dict[str, float]]:
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
@@ -165,7 +169,13 @@ def train(
     for epoch in range(1, epochs + 1):
         model.train()
         train_loss, train_correct, train_total = 0.0, 0, 0
-        for inputs, targets in train_loader:
+        batches = tqdm(
+            train_loader,
+            desc=f"epoch {epoch}/{epochs}",
+            disable=not show_progress,
+            unit="batch",
+        )
+        for inputs, targets in batches:
             inputs, targets = inputs.to(device), targets.to(device)
             optimizer.zero_grad(set_to_none=True)
             logits = model(inputs)
@@ -175,6 +185,10 @@ def train(
             train_loss += loss.item() * targets.size(0)
             train_correct += (logits.argmax(dim=1) == targets).sum().item()
             train_total += targets.size(0)
+            batches.set_postfix(
+                loss=f"{train_loss / train_total:.4f}",
+                acc=f"{train_correct / train_total:.3f}",
+            )
 
         val_loss, val_acc = evaluate(model, val_loader, criterion, device)
         metrics = {
@@ -252,6 +266,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--cells-per-stage", type=int, default=5)
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="Disable tqdm progress bars.",
+    )
+    parser.add_argument(
         "--device",
         default="auto",
         help="auto, cpu, cuda, cuda:0, mps, etc. Default: auto.",
@@ -273,6 +292,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Optional path for torch state_dict.",
+    )
+    parser.add_argument(
+        "--time-log",
+        type=Path,
+        default=Path("runs/cifar100_training_time.log"),
+        help="Append total training time JSONL here. Default: runs/cifar100_training_time.log.",
     )
     return parser
 
@@ -329,7 +354,18 @@ def main(argv: list[str] | None = None) -> None:
     print(f"nb201_string={format_nb201_string(arch)}")
     print(f"device={device}")
     print(f"parameters={params:,}")
-    history = train(model, train_loader, val_loader, device, args.epochs, args.lr)
+    train_started = time.perf_counter()
+    history = train(
+        model,
+        train_loader,
+        val_loader,
+        device,
+        args.epochs,
+        args.lr,
+        show_progress=not args.no_progress,
+    )
+    total_train_time_sec = time.perf_counter() - train_started
+    print(f"total_train_time_sec={total_train_time_sec:.3f}")
 
     result = {
         "genotype": arch,
@@ -348,8 +384,10 @@ def main(argv: list[str] | None = None) -> None:
         "base_channels": args.base_channels,
         "cells_per_stage": args.cells_per_stage,
         "num_workers": args.num_workers,
+        "total_train_time_sec": total_train_time_sec,
         "history": history,
     }
+    append_training_time_log(args.time_log, result)
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
@@ -430,6 +468,27 @@ def maybe_subset(dataset, sample_count: int | None, seed: int) -> Subset:
     generator = torch.Generator().manual_seed(seed)
     indices = torch.randperm(len(dataset), generator=generator)[:sample_count].tolist()
     return Subset(dataset, indices)
+
+
+def append_training_time_log(path: Path, result: dict) -> None:
+    entry = {
+        "timestamp_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "dataset": result["dataset"],
+        "genotype": result["genotype"],
+        "nb201_string": result["nb201_string"],
+        "epochs": result["epochs"],
+        "batch_size": result["batch_size"],
+        "train_size": result["train_size"],
+        "val_size": result["val_size"],
+        "device": result["device"],
+        "parameters": result["parameters"],
+        "total_train_time_sec": result["total_train_time_sec"],
+        "final_train_acc": result["history"][-1]["train_acc"],
+        "final_val_acc": result["history"][-1]["val_acc"],
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as file:
+        file.write(json.dumps(entry) + "\n")
 
 
 def resolve_device(requested: str) -> torch.device:
