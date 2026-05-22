@@ -166,16 +166,16 @@ def train(
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
     history = []
-    for epoch in range(1, epochs + 1):
+    epoch_bar = tqdm(
+        range(1, epochs + 1),
+        desc="training",
+        disable=not show_progress,
+        unit="epoch",
+    )
+    for epoch in epoch_bar:
         model.train()
         train_loss, train_correct, train_total = 0.0, 0, 0
-        batches = tqdm(
-            train_loader,
-            desc=f"epoch {epoch}/{epochs}",
-            disable=not show_progress,
-            unit="batch",
-        )
-        for inputs, targets in batches:
+        for inputs, targets in train_loader:
             inputs, targets = inputs.to(device), targets.to(device)
             optimizer.zero_grad(set_to_none=True)
             logits = model(inputs)
@@ -185,10 +185,6 @@ def train(
             train_loss += loss.item() * targets.size(0)
             train_correct += (logits.argmax(dim=1) == targets).sum().item()
             train_total += targets.size(0)
-            batches.set_postfix(
-                loss=f"{train_loss / train_total:.4f}",
-                acc=f"{train_correct / train_total:.3f}",
-            )
 
         val_loss, val_acc = evaluate(model, val_loader, criterion, device)
         metrics = {
@@ -199,6 +195,12 @@ def train(
             "val_acc": val_acc,
         }
         history.append(metrics)
+        epoch_bar.set_postfix(
+            train_loss=f"{metrics['train_loss']:.4f}",
+            train_acc=f"{metrics['train_acc']:.3f}",
+            val_loss=f"{metrics['val_loss']:.4f}",
+            val_acc=f"{metrics['val_acc']:.3f}",
+        )
         print(
             "epoch={epoch:03d} train_loss={train_loss:.4f} "
             "train_acc={train_acc:.3f} val_loss={val_loss:.4f} val_acc={val_acc:.3f}".format(
