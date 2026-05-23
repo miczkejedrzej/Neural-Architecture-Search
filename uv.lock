@@ -819,11 +819,15 @@ name = "neural-architecture-search"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "gdown" },
     { name = "naslib" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "naslib", editable = "NASLib" }]
+requires-dist = [
+    { name = "gdown" },
+    { name = "naslib", editable = "NASLib" },
+]
 
 [[package]]
 name = "ngboost"

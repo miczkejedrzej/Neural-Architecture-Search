@@ -1,4 +1,4 @@
-"""Train a NAS-Bench-201 genotype on CIFAR-100."""
+"""Train a NAS-Bench-201 genotype on CIFAR-100 or ImageNet16-120."""
 
 from __future__ import annotations
 
@@ -10,9 +10,10 @@ import time
 from pathlib import Path
 
 import torch
-from torchvision import datasets, transforms
+from naslib.utils.DownsampledImageNet import ImageNet16
 from torch import nn
 from torch.utils.data import DataLoader, Subset
+from torchvision import datasets, transforms
 from tqdm.auto import tqdm
 
 from nas_benchmarks.architecture_summary import (
@@ -93,9 +94,37 @@ class ResNetBasicblock(nn.Module):
 NUM_CIFAR100_CLASSES = 100
 CIFAR100_MEAN = (0.5071, 0.4867, 0.4408)
 CIFAR100_STD = (0.2675, 0.2565, 0.2761)
+NUM_IMAGENET16_120_CLASSES = 120
+IMAGENET16_MEAN = tuple(value / 255 for value in (122.68, 116.66, 104.01))
+IMAGENET16_STD = tuple(value / 255 for value in (63.22, 61.26, 65.09))
+DATASET_CLASS_COUNTS = {
+    "cifar100": NUM_CIFAR100_CLASSES,
+    "ImageNet16-120": NUM_IMAGENET16_120_CLASSES,
+}
+DATASET_DISPLAY_NAMES = {
+    "cifar100": "CIFAR-100",
+    "ImageNet16-120": "ImageNet16-120",
+}
+DEFAULT_TIME_LOGS = {
+    "cifar100": Path("runs/cifar100_training_time.log"),
+    "ImageNet16-120": Path("runs/imagenet16_120_training_time.log"),
+}
+IMAGENET16_120_FILE_IDS = (
+    ("train_data_batch_1", "1qd9Fkg7MdIe3MMbHtIJC8eZ8OsWcqPYA"),
+    ("train_data_batch_2", "1pQBJ9exwpSG2E7m6aVvcOlJBGRhVhtg9"),
+    ("train_data_batch_3", "175we9AOjnGam0j4sG5Vn0SHFyBvyv2Ia"),
+    ("train_data_batch_4", "1FNBkOavsAP6Hvi7-41yLZwojdWfPub-R"),
+    ("train_data_batch_5", "1HujB1GyiBjrSdAA0he5kZtkO9WEDAwCn"),
+    ("train_data_batch_6", "1_vaYBQpbP6bx-G0_EiNysohqOJBJ_Ept"),
+    ("train_data_batch_7", "1JwQk4TE21KqvrfvnOfVcdqnEB32ULWTr"),
+    ("train_data_batch_8", "1T00JaN09RlNZPod8dQnF_Xdz0BWtjCWr"),
+    ("train_data_batch_9", "1fB2JYSZRfd8uKfKLBO9P3mn9HWIWtMOH"),
+    ("train_data_batch_10", "19Qvrqt-wi0UOCZBwI_Jw6-bLIXCYcPyl"),
+    ("val_data", "1LQNICeSrwwE2KdDxc9Z9FXmi7N4HKUsA"),
+)
 
 
-class NB201Cifar100Network(nn.Module):
+class NB201Network(nn.Module):
     def __init__(
         self,
         arch: tuple[int, ...],
@@ -225,11 +254,18 @@ def evaluate(
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Train a NAS-Bench-201 genotype on CIFAR-100."
+        description="Train a NAS-Bench-201 genotype on CIFAR-100 or ImageNet16-120."
     )
     parser.add_argument(
         "architecture",
         help="Tuple/list/comma-separated op indices, e.g. '(2,3,0,1,2,3)'.",
+    )
+    parser.add_argument(
+        "--dataset",
+        type=normalize_dataset_name,
+        choices=tuple(DATASET_DISPLAY_NAMES),
+        default="cifar100",
+        help="Dataset to train on. Default: cifar100.",
     )
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=32)
@@ -237,24 +273,28 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--train-samples",
         type=int,
         default=None,
-        help="Optional cap on CIFAR-100 train samples for smoke runs.",
+        help="Optional cap on train samples for smoke runs.",
     )
     parser.add_argument(
         "--val-samples",
         type=int,
         default=None,
-        help="Optional cap on CIFAR-100 test samples for smoke runs.",
+        help="Optional cap on validation/test samples for smoke runs.",
     )
     parser.add_argument(
         "--data-root",
         type=Path,
         default=Path("data"),
-        help="Directory containing/downloading CIFAR-100. Default: data.",
+        help=(
+            "Dataset root. CIFAR-100 uses this directory directly; "
+            "ImageNet16-120 defaults to the ImageNet16-120 subdirectory. "
+            "Default: data."
+        ),
     )
     parser.add_argument(
         "--download",
         action="store_true",
-        help="Download CIFAR-100 if it is missing under --data-root.",
+        help="Download the selected dataset if it is missing under --data-root.",
     )
     parser.add_argument("--lr", type=float, default=3e-3)
     parser.add_argument("--seed", type=int, default=0)
@@ -292,8 +332,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--time-log",
         type=Path,
-        default=Path("runs/cifar100_training_time.log"),
-        help="Append total training time JSONL here. Default: runs/cifar100_training_time.log.",
+        default=None,
+        help="Append total training time JSONL here. Default: dataset-specific file in runs/.",
     )
     return parser
 
@@ -315,7 +355,8 @@ def main(argv: list[str] | None = None) -> None:
     set_seed(args.seed)
     try:
         device = resolve_device(args.device)
-        train_dataset, val_dataset = make_cifar100_datasets(
+        train_dataset, val_dataset = make_datasets(
+            args.dataset,
             args.data_root,
             args.download,
             args.train_samples,
@@ -339,13 +380,14 @@ def main(argv: list[str] | None = None) -> None:
         pin_memory=device.type == "cuda",
     )
 
-    model = NB201Cifar100Network(
+    model = NB201Network(
         arch,
-        num_classes=NUM_CIFAR100_CLASSES,
+        num_classes=DATASET_CLASS_COUNTS[args.dataset],
         base_channels=args.base_channels,
         cells_per_stage=args.cells_per_stage,
     ).to(device)
     params = count_parameters(model)
+    print(f"dataset={DATASET_DISPLAY_NAMES[args.dataset]}")
     print(f"genotype={arch}")
     print(f"nb201_string={format_nb201_string(arch)}")
     print(f"device={device}")
@@ -367,7 +409,7 @@ def main(argv: list[str] | None = None) -> None:
         "genotype": arch,
         "nb201_string": format_nb201_string(arch),
         "valid_nb201_architecture": is_valid_nb201_arch(arch),
-        "dataset": "CIFAR-100",
+        "dataset": DATASET_DISPLAY_NAMES[args.dataset],
         "data_root": str(args.data_root),
         "device": str(device),
         "parameters": params,
@@ -383,13 +425,22 @@ def main(argv: list[str] | None = None) -> None:
         "total_train_time_sec": total_train_time_sec,
         "history": history,
     }
-    append_training_time_log(args.time_log, result)
+    append_training_time_log(args.time_log or DEFAULT_TIME_LOGS[args.dataset], result)
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     if args.save_model is not None:
         args.save_model.parent.mkdir(parents=True, exist_ok=True)
         torch.save(model.state_dict(), args.save_model)
+
+
+def normalize_dataset_name(dataset_name: str) -> str:
+    normalized = dataset_name.lower().replace("_", "-")
+    if normalized in {"cifar100", "cifar-100"}:
+        return "cifar100"
+    if normalized == "imagenet16-120":
+        return "ImageNet16-120"
+    raise argparse.ArgumentTypeError("choose from cifar100, ImageNet16-120")
 
 
 def validate_train_args(args: argparse.Namespace) -> None:
@@ -410,6 +461,33 @@ def validate_train_args(args: argparse.Namespace) -> None:
             raise ValueError(f"--{field.replace('_', '-')} must be positive")
     if args.lr <= 0:
         raise ValueError("--lr must be positive")
+
+
+def make_datasets(
+    dataset_name: str,
+    data_root: Path,
+    download: bool,
+    train_samples: int | None,
+    val_samples: int | None,
+    seed: int,
+) -> tuple[Subset, Subset]:
+    if dataset_name == "cifar100":
+        return make_cifar100_datasets(
+            data_root,
+            download,
+            train_samples,
+            val_samples,
+            seed,
+        )
+    if dataset_name == "ImageNet16-120":
+        return make_imagenet16_120_datasets(
+            data_root,
+            download,
+            train_samples,
+            val_samples,
+            seed,
+        )
+    raise ValueError(f"unsupported dataset: {dataset_name}")
 
 
 def make_cifar100_datasets(
@@ -455,6 +533,113 @@ def make_cifar100_datasets(
         maybe_subset(train_dataset, train_samples, seed),
         maybe_subset(val_dataset, val_samples, seed + 1),
     )
+
+
+def make_imagenet16_120_datasets(
+    data_root: Path,
+    download: bool,
+    train_samples: int | None,
+    val_samples: int | None,
+    seed: int,
+) -> tuple[Subset, Subset]:
+    dataset_root = resolve_imagenet16_120_root(data_root)
+    if download:
+        download_imagenet16_120_dataset(dataset_root)
+    train_transform = transforms.Compose(
+        [
+            transforms.RandomCrop(16, padding=2),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(IMAGENET16_MEAN, IMAGENET16_STD),
+        ]
+    )
+    val_transform = transforms.Compose(
+        [
+            transforms.ToTensor(),
+            transforms.Normalize(IMAGENET16_MEAN, IMAGENET16_STD),
+        ]
+    )
+    try:
+        train_dataset = ImageNet16(
+            root=str(dataset_root),
+            train=True,
+            transform=train_transform,
+            use_num_of_class_only=NUM_IMAGENET16_120_CLASSES,
+        )
+        val_dataset = ImageNet16(
+            root=str(dataset_root),
+            train=False,
+            transform=val_transform,
+            use_num_of_class_only=NUM_IMAGENET16_120_CLASSES,
+        )
+    except RuntimeError as error:
+        raise ValueError(
+            "ImageNet16-120 not found or corrupted. Pass --download or place "
+            f"the extracted ImageNet16 files under {dataset_root}."
+        ) from error
+    return (
+        maybe_subset(train_dataset, train_samples, seed),
+        maybe_subset(val_dataset, val_samples, seed + 1),
+    )
+
+
+def download_imagenet16_120_dataset(dataset_root: Path) -> None:
+    try:
+        import gdown
+    except ImportError as error:
+        raise ValueError(
+            "ImageNet16-120 download requires gdown. Install dependencies with "
+            "`uv sync`, or install gdown manually."
+        ) from error
+
+    dataset_root.mkdir(parents=True, exist_ok=True)
+    expected_md5s = dict(ImageNet16.train_list + ImageNet16.valid_list)
+    for file_name, file_id in IMAGENET16_120_FILE_IDS:
+        file_path = dataset_root / file_name
+        expected_md5 = expected_md5s[file_name]
+        if file_path.exists() and file_md5_matches(file_path, expected_md5):
+            continue
+
+        print(f"downloading ImageNet16-120 {file_name}...")
+        temp_path = Path(f"{file_path}.download")
+        if temp_path.exists():
+            temp_path.unlink()
+        downloaded_path = gdown.download(
+            id=file_id,
+            output=str(temp_path),
+            quiet=False,
+        )
+        if downloaded_path is None or not temp_path.exists():
+            raise ValueError(f"failed to download ImageNet16-120 {file_name}")
+        if not file_md5_matches(temp_path, expected_md5):
+            temp_path.unlink(missing_ok=True)
+            raise ValueError(
+                f"downloaded ImageNet16-120 {file_name} failed the MD5 check"
+            )
+        temp_path.replace(file_path)
+
+
+def file_md5_matches(path: Path, expected_md5: str) -> bool:
+    return calculate_md5(path) == expected_md5
+
+
+def calculate_md5(path: Path) -> str:
+    import hashlib
+
+    md5 = hashlib.md5()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            md5.update(chunk)
+    return md5.hexdigest()
+
+
+def resolve_imagenet16_120_root(data_root: Path) -> Path:
+    if (
+        data_root.name == "ImageNet16-120"
+        or (data_root / "train_data_batch_1").exists()
+    ):
+        return data_root
+    return data_root / "ImageNet16-120"
 
 
 def maybe_subset(dataset, sample_count: int | None, seed: int) -> Subset:
