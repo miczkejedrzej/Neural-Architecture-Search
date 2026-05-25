@@ -1,6 +1,7 @@
 README.md
 pyproject.toml
 src/nas_benchmarks/__init__.py
+src/nas_benchmarks/architecture_summary.py
 src/nas_benchmarks/cli.py
 src/nas_benchmarks/config.py
 src/nas_benchmarks/constants.py
@@ -8,7 +9,9 @@ src/nas_benchmarks/data.py
 src/nas_benchmarks/nb201.py
 src/nas_benchmarks/output.py
 src/nas_benchmarks/plots.py
+src/nas_benchmarks/replot.py
 src/nas_benchmarks/runner.py
+src/nas_benchmarks/toy_train.py
 src/nas_benchmarks/optimizers/__init__.py
 src/nas_benchmarks/optimizers/darts_proxy.py
 src/nas_benchmarks/optimizers/random_search.py
@@ -16,5 +19,7 @@ src/nas_benchmarks/optimizers/rl.py
 src/neural_architecture_search.egg-info/PKG-INFO
 src/neural_architecture_search.egg-info/SOURCES.txt
 src/neural_architecture_search.egg-info/dependency_links.txt
+src/neural_architecture_search.egg-info/entry_points.txt
 src/neural_architecture_search.egg-info/requires.txt
 src/neural_architecture_search.egg-info/top_level.txt
+tests/test_replot.py

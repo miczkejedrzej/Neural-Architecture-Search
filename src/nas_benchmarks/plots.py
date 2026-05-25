@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 import matplotlib
+import numpy as np
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -19,6 +21,9 @@ STYLE = {
     "rl": {"color": "#16a34a", "marker": "^", "label": "RL Controller"},
     "darts_proxy": {"color": "#9333ea", "marker": "D", "label": "DARTS Proxy"},
 }
+
+TIME_AXIS_KEY = "wall_time_sec"
+ADJUSTED_TIME_AXIS_KEY = "adjusted_wall_time_sec"
 
 
 def write_plots(
@@ -89,6 +94,51 @@ def write_plots(
     return paths
 
 
+def write_adjusted_time_plots(
+    out_dir: Path,
+    rows: list[dict[str, Any]],
+    extra_time_sec: float,
+) -> list[Path]:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    adjusted_rows = add_adjusted_wall_time(rows, extra_time_sec)
+    grouped = group_rows(average_rows(adjusted_rows))
+    cutoff_time_sec = compute_bananas_adjusted_time_cutoff(adjusted_rows)
+    final_summary = build_final_test_accuracy_summary(adjusted_rows, cutoff_time_sec)
+
+    paths = [
+        plot_metric_trajectory_by_time(
+            out_dir / "best_test_accuracy_by_time.png",
+            grouped,
+            metric="test_acc",
+            ylabel="Best test accuracy (%)",
+            title="NAS-Bench-201 test trajectory over time",
+            time_key=ADJUSTED_TIME_AXIS_KEY,
+            max_time_sec=cutoff_time_sec,
+            dense_initial_hours_until=50,
+            dense_initial_hours_step=10,
+        ),
+        plot_metric_trajectory_by_time(
+            out_dir / "runtime_vs_val_accuracy.png",
+            grouped,
+            metric="val_acc",
+            ylabel="Best validation accuracy (%)",
+            title="Validation accuracy vs wall time",
+            time_key=ADJUSTED_TIME_AXIS_KEY,
+            max_time_sec=cutoff_time_sec,
+            dense_initial_hours_until=50,
+            dense_initial_hours_step=10,
+        ),
+        plot_final_bars(
+            out_dir / "final_test_accuracy.png",
+            final_summary,
+            metric="test_acc",
+            ylabel="Final test accuracy (%)",
+            title="Final test accuracy by optimizer",
+        ),
+    ]
+    return paths
+
+
 def group_rows(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
@@ -108,8 +158,165 @@ def group_rows_by_run(
         grouped[optimizer][run_id].append(row)
     for optimizer_runs in grouped.values():
         for run_rows in optimizer_runs.values():
-            run_rows.sort(key=lambda row: float(row["wall_time_sec"]))
+            run_rows.sort(key=lambda row: float(row[TIME_AXIS_KEY]))
     return {opt: dict(runs) for opt, runs in grouped.items()}
+
+
+def add_adjusted_wall_time(
+    rows: list[dict[str, Any]],
+    extra_time_sec: float,
+) -> list[dict[str, Any]]:
+    grouped = group_rows_by_optimizer_and_run(rows)
+    adjusted_rows: list[dict[str, Any]] = []
+    for optimizer_runs in grouped.values():
+        for run_rows in optimizer_runs.values():
+            repaired_rows = fill_missing_wall_times(run_rows)
+            for evaluation_index, row in enumerate(repaired_rows, start=1):
+                adjusted_row = dict(row)
+                adjusted_row[ADJUSTED_TIME_AXIS_KEY] = (
+                    float(row[TIME_AXIS_KEY]) + evaluation_index * extra_time_sec
+                )
+                adjusted_rows.append(adjusted_row)
+    return adjusted_rows
+
+
+def group_rows_by_optimizer_and_run(
+    rows: list[dict[str, Any]],
+) -> dict[str, dict[int, list[dict[str, Any]]]]:
+    grouped: dict[str, dict[int, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
+    for row in rows:
+        optimizer = str(row["optimizer"])
+        run_id = int(row.get("run_id", 0))
+        grouped[optimizer][run_id].append(row)
+    for optimizer_runs in grouped.values():
+        for run_rows in optimizer_runs.values():
+            run_rows.sort(key=lambda row: int(row["epoch"]))
+    return {optimizer: dict(runs) for optimizer, runs in grouped.items()}
+
+
+def fill_missing_wall_times(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    repaired_rows = [dict(row) for row in rows]
+    times = [parse_float(row.get(TIME_AXIS_KEY)) for row in repaired_rows]
+    epochs = [int(row["epoch"]) for row in repaired_rows]
+
+    for index, value in enumerate(times):
+        if value is not None:
+            repaired_rows[index][TIME_AXIS_KEY] = value
+            continue
+
+        prev_index = index - 1
+        while prev_index >= 0 and times[prev_index] is None:
+            prev_index -= 1
+
+        next_index = index + 1
+        while next_index < len(times) and times[next_index] is None:
+            next_index += 1
+
+        if prev_index >= 0 and next_index < len(times):
+            prev_time = float(times[prev_index])
+            next_time = float(times[next_index])
+            prev_epoch = epochs[prev_index]
+            next_epoch = epochs[next_index]
+            epoch = epochs[index]
+            span = next_epoch - prev_epoch
+            if span <= 0:
+                filled = prev_time
+            else:
+                filled = prev_time + (next_time - prev_time) * ((epoch - prev_epoch) / span)
+        elif prev_index >= 0:
+            filled = float(times[prev_index])
+        elif next_index < len(times):
+            filled = float(times[next_index])
+        else:
+            raise ValueError("Cannot infer missing wall_time_sec from empty trajectory run.")
+
+        times[index] = filled
+        repaired_rows[index][TIME_AXIS_KEY] = filled
+
+    return repaired_rows
+
+
+def parse_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, (float, int)):
+        return float(value)
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        match = re.search(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", text)
+        if match is None:
+            raise
+        return float(match.group(0))
+
+
+def compute_shared_adjusted_time_cutoff(
+    grouped: dict[str, list[dict[str, Any]]],
+) -> float:
+    final_times = [
+        float(rows[-1][ADJUSTED_TIME_AXIS_KEY])
+        for rows in grouped.values()
+        if rows
+    ]
+    if not final_times:
+        raise ValueError("Cannot compute cutoff for empty trajectory rows.")
+    return min(final_times)
+
+
+def compute_bananas_adjusted_time_cutoff(
+    rows: list[dict[str, Any]],
+) -> float:
+    grouped = group_rows_by_optimizer_and_run(rows)
+    bananas_runs = grouped.get("bananas")
+    if not bananas_runs:
+        raise ValueError("Cannot compute adjusted cutoff without BANANAS trajectory rows.")
+
+    shortest_run = min(
+        bananas_runs.values(),
+        key=lambda run_rows: (len(run_rows), int(run_rows[-1]["epoch"])),
+    )
+    if not shortest_run:
+        raise ValueError("Cannot compute adjusted cutoff from empty BANANAS run.")
+    return float(shortest_run[-1][ADJUSTED_TIME_AXIS_KEY])
+
+
+def build_final_test_accuracy_summary(
+    rows: list[dict[str, Any]],
+    cutoff_time_sec: float,
+) -> dict[str, Any]:
+    optimizers: dict[str, dict[str, float | str]] = {}
+    grouped = group_rows_by_optimizer_and_run(rows)
+    for optimizer, runs in grouped.items():
+        run_values: list[float] = []
+        for run_rows in runs.values():
+            eligible_rows = [
+                row for row in run_rows if float(row[ADJUSTED_TIME_AXIS_KEY]) <= cutoff_time_sec
+            ]
+            if not eligible_rows:
+                continue
+            run_values.append(float(eligible_rows[-1]["test_acc"]))
+        if not run_values:
+            continue
+        optimizers[optimizer] = {
+            "optimizer": optimizer,
+            "test_acc": float(sum(run_values)) / float(len(run_values)),
+        }
+    return {"optimizers": optimizers}
+
+
+def filter_rows_by_max_time(
+    rows: list[dict[str, Any]],
+    time_key: str,
+    max_time_sec: float | None,
+) -> list[dict[str, Any]]:
+    if max_time_sec is None:
+        return rows
+    return [row for row in rows if float(row[time_key]) <= max_time_sec]
 
 
 def average_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -137,7 +344,11 @@ def average_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         base["optimizer"] = optimizer
         base["epoch"] = epoch
         for field in numeric_fields:
-            values = [row[field] for row in group if row.get(field) is not None]
+            values = [
+                parsed
+                for row in group
+                if (parsed := parse_float(row.get(field))) is not None
+            ]
             if values:
                 base[field] = float(sum(values)) / float(len(values))
             else:
@@ -207,7 +418,7 @@ def build_best_so_far_curves(
             if val is None:
                 continue
             best_val = max(best_val, float(val)) if best_val is not None else float(val)
-            times.append(float(row["wall_time_sec"]))
+            times.append(float(row[TIME_AXIS_KEY]))
             bests.append(best_val)
         if times:
             curves.append((times, bests))
@@ -279,11 +490,24 @@ def plot_metric_trajectory_by_time(
     metric: str,
     ylabel: str,
     title: str,
+    time_key: str = TIME_AXIS_KEY,
+    max_time_sec: float | None = None,
+    dense_initial_hours_until: float | None = None,
+    dense_initial_hours_step: float | None = None,
 ) -> Path:
     fig, ax = plt.subplots(figsize=(9, 5), dpi=160)
+    max_time_hours: float | None = None
     for optimizer, rows in grouped.items():
-        wall_times = [float(row["wall_time_sec"]) for row in rows]
-        values = [float(row[metric]) for row in rows]
+        filtered_rows = filter_rows_by_max_time(rows, time_key, max_time_sec)
+        if not filtered_rows:
+            continue
+        wall_times = np.array([float(row[time_key]) for row in filtered_rows])
+
+        if max_time_sec is not None:
+            max_time_hours = float(np.round(max_time_sec / 3600, 0))
+        # Cast seconds to hours on the plot.
+        wall_times = np.round(wall_times / 3600, 0)
+        values = [float(row[metric]) for row in filtered_rows]
         style = STYLE.get(optimizer, {})
         ax.plot(
             wall_times,
@@ -294,7 +518,25 @@ def plot_metric_trajectory_by_time(
             color=style.get("color"),
             label=style.get("label", optimizer),
         )
-    finish_axes(ax, xlabel="Wall time (seconds)", ylabel=ylabel, title=title)
+    finish_axes(ax, xlabel="Wall time (hours)", ylabel=ylabel, title=title)
+    if max_time_hours is not None:
+        ax.set_xlim(right=max_time_hours)
+    if (
+        dense_initial_hours_until is not None
+        and dense_initial_hours_step is not None
+        and dense_initial_hours_step > 0
+    ):
+        current_ticks = ax.get_xticks()
+        dense_ticks = np.arange(0, dense_initial_hours_until + dense_initial_hours_step, dense_initial_hours_step)
+        merged_ticks = sorted(
+            {
+                float(tick)
+                for tick in current_ticks
+                if tick >= dense_initial_hours_until
+            }
+            | {float(tick) for tick in dense_ticks}
+        )
+        ax.set_xticks(merged_ticks)
     fig.tight_layout()
     fig.savefig(path)
     plt.close(fig)
